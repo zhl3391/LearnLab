@@ -1,0 +1,107 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
+}
+
+enum NodeType {
+  KNOWLEDGE
+  SKILL
+  APPLICATION
+}
+
+enum Granularity {
+  L1_DOMAIN
+  L2_CONCEPT
+  L3_CAPABILITY
+  L4_SPECIFIC
+}
+
+enum EdgeType {
+  PREREQUISITE
+  PART_OF
+  RELATED
+}
+
+enum EdgeStrength {
+  REQUIRED
+  IMPORTANT
+  HELPFUL
+}
+
+model Topic {
+  id          String             @id @default(uuid())
+  name        String
+  description String?
+  parentId    String?
+  parent      Topic?             @relation("TopicHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
+  children    Topic[]            @relation("TopicHierarchy")
+  memberships TopicMembership[]
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  @@index([parentId])
+}
+
+model LearningNode {
+  id             String             @id @default(uuid())
+  title          String
+  description    String?
+  type           NodeType
+  granularity    Granularity
+  difficulty     Int?
+  metadata       Json?
+  memberships    TopicMembership[]
+  outgoingEdges  LearningEdge[]     @relation("EdgeSource")
+  incomingEdges  LearningEdge[]     @relation("EdgeTarget")
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  @@index([type])
+  @@index([granularity])
+}
+
+model TopicMembership {
+  topicId String
+  nodeId  String
+  topic   Topic        @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  node    LearningNode @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+
+  @@id([topicId, nodeId])
+  @@index([nodeId])
+}
+
+model LearningEdge {
+  id           String       @id @default(uuid())
+  sourceNodeId String
+  targetNodeId String
+  type         EdgeType
+  strength     EdgeStrength
+  sourceNode   LearningNode @relation("EdgeSource", fields: [sourceNodeId], references: [id], onDelete: Cascade)
+  targetNode   LearningNode @relation("EdgeTarget", fields: [targetNodeId], references: [id], onDelete: Cascade)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@unique([sourceNodeId, targetNodeId, type])
+  @@index([sourceNodeId, type])
+  @@index([targetNodeId, type])
+}
+
+model ImportRun {
+  id           String   @id @default(uuid())
+  source       String
+  version      String
+  checksum     String
+  topics       Int
+  nodes        Int
+  memberships  Int
+  edges        Int
+  importedAt   DateTime @default(now())
+
+  @@unique([source, version, checksum])
+  @@index([source, version])
+}
