@@ -81,6 +81,7 @@ model LearningEdge {
   targetNodeId String
   type         EdgeType
   strength     EdgeStrength
+  metadata     Json?
   sourceNode   LearningNode @relation("EdgeSource", fields: [sourceNodeId], references: [id], onDelete: Cascade)
   targetNode   LearningNode @relation("EdgeTarget", fields: [targetNodeId], references: [id], onDelete: Cascade)
   createdAt    DateTime     @default(now())

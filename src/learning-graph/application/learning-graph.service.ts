@@ -149,6 +149,7 @@ export class LearningGraphService {
         targetNodeId: edge.targetNodeKey,
         type: edge.type,
         strength: edge.strength,
+        metadata: edge.metadata,
       };
     });
     const normalizedEdges = validateGraphSnapshot({
@@ -163,6 +164,7 @@ export class LearningGraphService {
         targetNodeKey: edge.targetNodeId,
         type: edge.type,
         strength: edge.strength,
+        metadata: edge.metadata,
       })),
     };
   }

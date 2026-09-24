@@ -27,6 +27,7 @@ export interface ImportEdgeData {
   targetNodeKey: string;
   type: EdgeType;
   strength: EdgeStrength;
+  metadata?: Record<string, unknown>;
 }
 
 export interface ImportGraphData {

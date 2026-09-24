@@ -33,6 +33,7 @@ export interface GraphEdge {
   targetNodeId: string;
   type: EdgeType;
   strength: EdgeStrength;
+  metadata?: Record<string, unknown>;
 }
 
 export interface GraphSnapshot {

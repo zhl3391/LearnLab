@@ -6,12 +6,20 @@
 
 项目不要求 Docker。只要本地 PostgreSQL 已创建数据库，并将连接地址写入 `.env` 即可。
 
+配置 `.env` 和安装依赖后，在项目根目录用一个命令启动前后端：
+
+```bash
+npm run dev
+```
+
+后端使用 `.env` 中的 `PORT`，前端默认运行在 `http://localhost:3000`。按 `Ctrl+C` 会同时关闭两个服务；可用 `WEB_PORT` 更改前端端口。
+
 ```bash
 cp .env.example .env
 npm install
+npm install --prefix web
 npx prisma generate
 npx prisma migrate dev --name init
-npm run start:dev
 ```
 
 例如本地 PostgreSQL 使用默认用户和端口时，`.env` 可以是：
@@ -25,7 +33,7 @@ SHADOW_DATABASE_URL="postgresql://postgres:postgres@localhost:5432/learnlab_shad
 
 `docker compose up -d postgres` 只是没有本地 PostgreSQL 时的可选备用方案。
 
-服务默认运行在 `http://localhost:3000`。
+后端地址由 `.env` 的 `PORT` 决定，前端地址默认为 `http://localhost:3000`。
 
 ## API
 
@@ -49,27 +57,20 @@ POST /learning-graph/import
 - `RELATED` 会按节点 ID 规范化为无向关系的单一存储方向
 - `difficulty` 当前约定为 1 到 5 的整数
 
-## 导入 Marble Taxonomy
+## 一次性初始化北京版知识图谱
 
-导入命令会从 Marble 的公开仓库读取并校验 `manifest.json`、`topics.json` 和
-`dependencies.json`，然后调用本地的事务导入接口：
+当前初始化来源是 [Beijing Skill Taxonomy](https://github.com/luw2007/os-taxonomy-beijing)。命令会先校验数据文件 checksum、上游 ID 对齐和整图 DAG，再在一个数据库事务中替换此前的 Marble 初始化图谱：
 
 ```bash
-npm run import:marble
+npm run import:beijing -- --dry-run
+npm run import:beijing
 ```
 
-映射规则：
+这是一次性快照导入，不会持续同步上游。重复导入同一快照会跳过；发现图谱不属于已知旧 Marble 初始化批次时会中止，避免覆盖其他数据。
 
-- Marble topic → LearningNode
-- Marble subject → 根 Topic
-- Marble domain → subject 下的子 Topic
-- `topicId depends on prerequisiteId` → `prerequisiteId PREREQUISITE topicId`
-- `hard` → `REQUIRED`，`soft` → `IMPORTANT`
-- Marble 的 evidence、assessmentPrompt、年龄段和 standards 放入 `metadata`
+北京版中文译文会按 `mt_` ID 合并上游节点结构，`mtc_` 中国特有主题单独创建。来源标为 `rejected` 的关系不导入；`machine` 关系保留并标记为待复核；`reviewed` 状态、理由和审核依据保存在关系 metadata 中。边强度单独映射：`hard` → `REQUIRED`，`soft` → `IMPORTANT`。
 
-导入请求会携带 Marble 的版本和文件 checksum，并记录到 `ImportRun`。相同版本和 checksum 再次导入时会返回 `skipped: true`，不会重复写入数据。
-
-Marble 数据库使用 ODbL 1.0，Marble 编写的文本内容使用 CC BY-SA 4.0；使用或再分发导入数据时需要保留相应署名和许可信息。
+数据遵循 ODbL 1.0 与 CC BY-SA 4.0，分发或使用时需要保留上游署名；课程标准仅保留 codes-only 映射键。详情见 [北京版初始化说明](./docs/BeijingTaxonomyBootstrap.md) 和 [来源/许可说明](https://github.com/luw2007/os-taxonomy-beijing/blob/main/PROVENANCE.md)。
 
 ## 验证
 

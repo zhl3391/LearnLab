@@ -78,12 +78,17 @@ export class PrismaLearningGraphRepository implements LearningGraphRepository {
     targetNodeId: string;
     type: import('../domain/model').EdgeType;
     strength: import('../domain/model').EdgeStrength;
+    metadata?: Record<string, unknown>;
   }) {
+    const { metadata, ...edgeData } = edge;
     return this.prisma.learningEdge.create({
       data: {
-        ...edge,
+        ...edgeData,
         type: edge.type as PrismaEdgeType,
         strength: edge.strength as PrismaEdgeStrength,
+        ...(metadata === undefined
+          ? {}
+          : { metadata: metadata as Prisma.InputJsonValue }),
       },
     });
   }
@@ -168,12 +173,16 @@ export class PrismaLearningGraphRepository implements LearningGraphRepository {
       }
 
       for (const edge of data.edges) {
+        const { metadata, ...edgeData } = edge;
         await tx.learningEdge.create({
           data: {
-            sourceNodeId: nodeIds[edge.sourceNodeKey],
-            targetNodeId: nodeIds[edge.targetNodeKey],
-            type: edge.type as PrismaEdgeType,
-            strength: edge.strength as PrismaEdgeStrength,
+            sourceNodeId: nodeIds[edgeData.sourceNodeKey],
+            targetNodeId: nodeIds[edgeData.targetNodeKey],
+            type: edgeData.type as PrismaEdgeType,
+            strength: edgeData.strength as PrismaEdgeStrength,
+            ...(metadata === undefined
+              ? {}
+              : { metadata: metadata as Prisma.InputJsonValue }),
           },
         });
       }
@@ -248,7 +257,10 @@ export class PrismaLearningGraphRepository implements LearningGraphRepository {
         skip: (query.page - 1) * query.pageSize,
         take: query.pageSize,
         orderBy: [{ title: 'asc' }, { id: 'asc' }],
-        include: { memberships: { include: { topic: true } } },
+        include: {
+          memberships: { include: { topic: true } },
+          _count: { select: { incomingEdges: true, outgoingEdges: true } },
+        },
       }),
       this.prisma.learningNode.count({ where }),
     ]);
@@ -266,8 +278,18 @@ export class PrismaLearningGraphRepository implements LearningGraphRepository {
       where: { id },
       include: {
         memberships: { include: { topic: true } },
-        incomingEdges: { include: { sourceNode: true } },
-        outgoingEdges: { include: { targetNode: true } },
+        incomingEdges: {
+          include: {
+            sourceNode: { select: { id: true, title: true } },
+            targetNode: { select: { id: true, title: true } },
+          },
+        },
+        outgoingEdges: {
+          include: {
+            sourceNode: { select: { id: true, title: true } },
+            targetNode: { select: { id: true, title: true } },
+          },
+        },
       },
     });
   }

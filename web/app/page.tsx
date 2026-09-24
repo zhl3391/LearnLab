@@ -3,95 +3,256 @@
 import { useEffect, useMemo, useState } from 'react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3210';
+const PAGE_SIZE = 25;
+
 type NodeType = 'KNOWLEDGE' | 'SKILL' | 'APPLICATION';
 type Granularity = 'L1_DOMAIN' | 'L2_CONCEPT' | 'L3_CAPABILITY' | 'L4_SPECIFIC';
-type Topic = { id: string; name: string; parentId: string | null };
-type NodeItem = { id: string; title: string; description: string | null; type: NodeType; granularity: Granularity; memberships: { topic: Topic }[] };
-type NodeDetails = NodeItem & { incomingEdges: { strength: string; sourceNode: NodeItem }[]; outgoingEdges: { strength: string; targetNode: NodeItem }[] };
+type EdgeType = 'PREREQUISITE' | 'PART_OF' | 'RELATED';
+type EdgeStrength = 'REQUIRED' | 'IMPORTANT' | 'HELPFUL';
+
+type Topic = { id: string; name: string; parentId: string | null; parent?: Topic | null };
+type NodeItem = {
+  id: string;
+  title: string;
+  description: string | null;
+  type: NodeType;
+  granularity: Granularity;
+  difficulty: number | null;
+  metadata: Record<string, unknown> | null;
+  memberships: { topic: Topic }[];
+  _count?: { incomingEdges: number; outgoingEdges: number };
+};
+type Edge = {
+  id: string;
+  sourceNodeId: string;
+  targetNodeId: string;
+  type: EdgeType;
+  strength: EdgeStrength;
+  sourceNode?: Pick<NodeItem, 'id' | 'title'>;
+  targetNode?: Pick<NodeItem, 'id' | 'title'>;
+  metadata?: Record<string, unknown> | null;
+};
+type NodeDetails = NodeItem & { incomingEdges: Edge[]; outgoingEdges: Edge[] };
+type NodePage = { items: NodeItem[]; page: number; pageSize: number; total: number; totalPages: number };
 
 const typeLabels: Record<NodeType, string> = { KNOWLEDGE: '知识', SKILL: '技能', APPLICATION: '应用' };
-const granularityLabels: Record<Granularity, string> = { L1_DOMAIN: '领域', L2_CONCEPT: '概念', L3_CAPABILITY: '能力', L4_SPECIFIC: '具体' };
+const grainLabels: Record<Granularity, string> = { L1_DOMAIN: '领域', L2_CONCEPT: '概念', L3_CAPABILITY: '能力', L4_SPECIFIC: '具体' };
+const edgeLabels: Record<EdgeType, string> = { PREREQUISITE: '前置', PART_OF: '组成', RELATED: '相关' };
+const strengthLabels: Record<EdgeStrength, string> = { REQUIRED: '必要', IMPORTANT: '重要', HELPFUL: '有帮助' };
 
 export default function Home() {
-  const [nodes, setNodes] = useState<NodeItem[]>([]);
   const [topics, setTopics] = useState<Topic[]>([]);
+  const [nodes, setNodes] = useState<NodeItem[]>([]);
   const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+  const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [type, setType] = useState('');
+  const [granularity, setGranularity] = useState('');
+  const [topicId, setTopicId] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selected, setSelected] = useState<NodeDetails | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loadingList, setLoadingList] = useState(true);
+  const [loadingDetails, setLoadingDetails] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(`${API_URL}/learning-graph/topics`)
-      .then((response) => { if (!response.ok) throw new Error('无法读取主题'); return response.json() as Promise<Topic[]>; })
+    const controller = new AbortController();
+    fetch(`${API_URL}/learning-graph/topics`, { signal: controller.signal })
+      .then(assertOk)
+      .then((response) => response.json() as Promise<Topic[]>)
       .then(setTopics)
-      .catch((reason: Error) => setError(reason.message));
+      .catch((reason: Error) => { if (reason.name !== 'AbortError') setError(reason.message); });
+    return () => controller.abort();
   }, []);
 
   useEffect(() => {
+    const controller = new AbortController();
     const timer = setTimeout(() => {
-      const params = new URLSearchParams({ page: '1', pageSize: '12' });
+      const params = new URLSearchParams({ page: String(page), pageSize: String(PAGE_SIZE) });
       if (search.trim()) params.set('search', search.trim());
       if (type) params.set('type', type);
-      setLoading(true);
-      fetch(`${API_URL}/learning-graph/nodes?${params}`)
-        .then((response) => { if (!response.ok) throw new Error('无法读取知识节点'); return response.json() as Promise<{ items: NodeItem[]; total: number }>; })
-        .then((result) => { setNodes(result.items); setTotal(result.total); setError(null); })
-        .catch((reason: Error) => setError(reason.message))
-        .finally(() => setLoading(false));
-    }, 180);
-    return () => clearTimeout(timer);
-  }, [search, type]);
+      if (granularity) params.set('granularity', granularity);
+      if (topicId) params.set('topicId', topicId);
+
+      setLoadingList(true);
+      fetch(`${API_URL}/learning-graph/nodes?${params}`, { signal: controller.signal })
+        .then(assertOk)
+        .then((response) => response.json() as Promise<NodePage>)
+        .then((result) => {
+          setNodes(result.items);
+          setTotal(result.total);
+          setTotalPages(result.totalPages);
+          setError(null);
+          if (selectedId && !result.items.some((node) => node.id === selectedId)) {
+            setSelectedId(null);
+            setSelected(null);
+          }
+        })
+        .catch((reason: Error) => { if (reason.name !== 'AbortError') setError(reason.message); })
+        .finally(() => { if (!controller.signal.aborted) setLoadingList(false); });
+    }, search ? 180 : 0);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [page, search, type, granularity, topicId]);
 
   useEffect(() => {
     if (!selectedId) { setSelected(null); return; }
-    fetch(`${API_URL}/learning-graph/nodes/${selectedId}`)
-      .then((response) => { if (!response.ok) throw new Error('无法读取节点详情'); return response.json() as Promise<NodeDetails>; })
+    const controller = new AbortController();
+    setLoadingDetails(true);
+    fetch(`${API_URL}/learning-graph/nodes/${selectedId}`, { signal: controller.signal })
+      .then(assertOk)
+      .then((response) => response.json() as Promise<NodeDetails>)
       .then(setSelected)
-      .catch((reason: Error) => setError(reason.message));
+      .catch((reason: Error) => { if (reason.name !== 'AbortError') setError(reason.message); })
+      .finally(() => { if (!controller.signal.aborted) setLoadingDetails(false); });
+    return () => controller.abort();
   }, [selectedId]);
 
-  const subjectCount = useMemo(() => topics.filter((topic) => !topic.parentId).length, [topics]);
+  const rootTopics = useMemo(() => topics.filter((topic) => !topic.parentId), [topics]);
+  const visibleStart = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const visibleEnd = Math.min(page * PAGE_SIZE, total);
+
+  function updateFilter(setter: (value: string) => void, value: string) {
+    setter(value);
+    setPage(1);
+  }
 
   return (
-    <main className="atlas-shell">
-      <aside className="rail">
-        <div className="brand-mark">LL</div><div className="rail-copy">LEARN<br />LAB</div><div className="rail-line" />
-        <button className="rail-nav rail-nav-active" aria-label="知识地图"><MapGlyph /><span>地图</span></button>
-        <button className="rail-nav" aria-label="主题"><GridGlyph /><span>主题</span></button>
-        <div className="rail-bottom">v0.1</div>
-      </aside>
-      <section className="atlas-content">
-        <header className="topbar"><div className="crumb"><span>LEARNLAB</span><i>/</i><strong>LEARNING ATLAS</strong></div><div className="connection"><span className="connection-dot" /> LIVE GRAPH <span className="connection-port">:3210</span></div></header>
-        <section className="hero-grid">
-          <div className="hero-copy"><p className="eyebrow">知识基础层 · KNOWLEDGE FOUNDATION</p><h1>看见知识<br /><em>如何相互依赖。</em></h1><p className="hero-lede">浏览 Learning Graph 中可独立学习的知识、技能与应用，沿着每条前置关系追溯学习基础。</p><div className="stat-row"><Stat value="1,590" label="学习节点" /><Stat value="3,221" label="前置关系" /><Stat value={String(subjectCount || 8)} label="主题领域" /></div></div>
-          <GraphStamp />
-        </section>
-        <section className="workspace">
-          <div className="workspace-head"><div><p className="eyebrow">EXPLORE THE GRAPH</p><h2>节点索引 <span>{total.toLocaleString()}</span></h2></div><div className="filter-row"><label className="search-box"><SearchGlyph /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索知识节点…" /></label><select value={type} onChange={(event) => setType(event.target.value)} aria-label="按类型筛选"><option value="">全部类型</option><option value="KNOWLEDGE">知识</option><option value="SKILL">技能</option><option value="APPLICATION">应用</option></select></div></div>
-          {error && <div className="error-note">{error} · 请确认 API 正在运行于 {API_URL}</div>}
-          <div className="results-layout"><div className="node-list" aria-live="polite">{loading ? <LoadingRows /> : nodes.length === 0 ? <EmptyState /> : nodes.map((node, index) => <button className={`node-row ${selectedId === node.id ? 'node-row-active' : ''}`} key={node.id} onClick={() => setSelectedId(node.id)}><span className="node-index">{String(index + 1).padStart(2, '0')}</span><span className="node-main"><strong>{node.title}</strong><small>{node.description ?? '暂无描述'}</small></span><span className={`type-pill type-${node.type.toLowerCase()}`}>{typeLabels[node.type]}</span><span className="node-grain">{granularityLabels[node.granularity]}</span><ChevronGlyph /></button>)}</div><DetailPanel node={selected} onClose={() => setSelectedId(null)} /></div>
-        </section>
+    <main className="review-shell">
+      <header className="review-header">
+        <div className="review-brand"><span className="brand-mark">LL</span><div><strong>LEARNLAB</strong><span>LEARNING GRAPH / 数据核查</span></div></div>
+        <div className="api-status"><i />只读检查 <span>{new URL(API_URL).host}</span></div>
+      </header>
+
+      <section className="review-toolbar" aria-label="节点筛选">
+        <label className="review-search"><SearchGlyph /><input value={search} onChange={(event) => updateFilter(setSearch, event.target.value)} placeholder="按名称或描述搜索" /></label>
+        <select value={topicId} onChange={(event) => updateFilter(setTopicId, event.target.value)} aria-label="按主题筛选">
+          <option value="">所有主题</option>
+          {rootTopics.map((root) => <optgroup label={root.name} key={root.id}>{topics.filter((topic) => topic.parentId === root.id).map((topic) => <option value={topic.id} key={topic.id}>{topic.name}</option>)}</optgroup>)}
+        </select>
+        <select value={type} onChange={(event) => updateFilter(setType, event.target.value)} aria-label="按节点类型筛选">
+          <option value="">所有类型</option><option value="KNOWLEDGE">知识</option><option value="SKILL">技能</option><option value="APPLICATION">应用</option>
+        </select>
+        <select value={granularity} onChange={(event) => updateFilter(setGranularity, event.target.value)} aria-label="按粒度筛选">
+          <option value="">所有粒度</option><option value="L1_DOMAIN">领域</option><option value="L2_CONCEPT">概念</option><option value="L3_CAPABILITY">能力</option><option value="L4_SPECIFIC">具体</option>
+        </select>
+        <button className="clear-filters" onClick={() => { setSearch(''); setType(''); setGranularity(''); setTopicId(''); setPage(1); }}>清除</button>
       </section>
+
+      {error && <div className="review-error">读取失败：{error} <span>请确认 API 地址 {API_URL}</span></div>}
+
+      <section className="review-heading">
+        <div><p className="eyebrow">GRAPH RECORDS</p><h1>数据核查</h1></div>
+        <div className="result-count"><strong>{total.toLocaleString()}</strong><span>条匹配记录</span></div>
+      </section>
+
+      <section className="review-workspace">
+        <div className="table-card">
+          <div className="table-caption"><span>LearningNode</span><span>{visibleStart}–{visibleEnd} / {total.toLocaleString()}</span></div>
+          <div className="table-scroll">
+            <div className="record-table" role="table" aria-label="LearningNode 数据列表">
+              <div className="record-header" role="row"><span>节点</span><span>主题</span><span>类型 / 粒度</span><span>前置</span><span>后续</span><span>核查</span></div>
+              {loadingList ? <TableLoading /> : nodes.length === 0 ? <div className="table-empty">没有匹配记录</div> : nodes.map((node) => <RecordRow node={node} selected={node.id === selectedId} key={node.id} onSelect={() => setSelectedId(node.id)} />)}
+            </div>
+          </div>
+          <nav className="pagination" aria-label="节点分页"><span>每页 {PAGE_SIZE} 条</span><div><button disabled={page <= 1 || loadingList} onClick={() => setPage((current) => current - 1)}>上一页</button><span>{page} / {Math.max(totalPages, 1)}</span><button disabled={page >= totalPages || loadingList} onClick={() => setPage((current) => current + 1)}>下一页</button></div></nav>
+        </div>
+
+        <aside className="inspect-panel" aria-label="节点核查详情">
+          {!selectedId && <div className="inspect-placeholder"><span className="placeholder-index">RECORD / —</span><h2>选择一条记录</h2><p>核对节点字段、主题归属和每条关系的方向及强度。</p></div>}
+          {selectedId && loadingDetails && <div className="inspect-placeholder"><span className="placeholder-index">LOADING RECORD</span><h2>正在读取…</h2></div>}
+          {selected && !loadingDetails && <NodeInspector node={selected} topics={topics} onSelectNode={setSelectedId} />}
+        </aside>
+      </section>
+      <footer className="review-footer"><span>字段来自 Learning Graph 当前存储值</span><span>关系方向按 source → target 显示</span></footer>
     </main>
   );
 }
 
-function Stat({ value, label }: { value: string; label: string }) { return <div className="stat"><strong>{value}</strong><span>{label}</span></div>; }
-
-function GraphStamp() { return <div className="graph-stamp" aria-label="Learning Graph prerequisite preview"><div className="stamp-label">PREREQUISITE SPINE <span>LIVE</span></div><svg viewBox="0 0 520 310" role="img"><defs><linearGradient id="spine" x1="0" x2="1"><stop offset="0" stopColor="#f5b642" /><stop offset="1" stopColor="#e36b43" /></linearGradient></defs><path className="graph-line faint" d="M65 230 C140 196, 130 130, 210 158 S300 230, 360 155 S422 76, 482 85" /><path className="graph-line faint" d="M65 230 C130 267, 176 270, 210 158 S318 86, 360 155" /><path className="graph-line main" d="M65 230 C140 196, 130 130, 210 158 S300 230, 360 155 S422 76, 482 85" /><g className="graph-node node-a"><circle cx="65" cy="230" r="13" /><circle cx="65" cy="230" r="4" /></g><g className="graph-node node-b"><circle cx="210" cy="158" r="11" /><circle cx="210" cy="158" r="4" /></g><g className="graph-node node-c"><circle cx="360" cy="155" r="15" /><circle cx="360" cy="155" r="4" /></g><g className="graph-node node-d"><circle cx="482" cy="85" r="10" /><circle cx="482" cy="85" r="4" /></g><text x="43" y="272">基础</text><text x="186" y="125">概念</text><text x="337" y="198">能力</text><text x="449" y="55">迁移</text></svg><div className="stamp-footer"><span>每个节点都是一件可被掌握的事物</span><span>↗ 关系可追溯</span></div></div>; }
-
-function DetailPanel({ node, onClose }: { node: NodeDetails | null; onClose: () => void }) {
-  if (!node) return <aside className="detail-panel detail-empty"><div className="detail-orbit" /><p>选择一个节点<br />查看它的知识邻域</p></aside>;
-  return <aside className="detail-panel"><button className="close-detail" onClick={onClose} aria-label="关闭详情">×</button><p className="eyebrow">NODE DETAIL</p><h3>{node.title}</h3><div className="detail-tags"><span className={`type-pill type-${node.type.toLowerCase()}`}>{typeLabels[node.type]}</span><span className="grain-tag">{granularityLabels[node.granularity]}</span></div><p className="detail-description">{node.description ?? '这个节点暂时还没有描述。'}</p><div className="detail-section"><span className="detail-label">所属主题</span><div className="topic-stack">{node.memberships.map(({ topic }) => <span key={topic.id}>{topic.name}</span>)}</div></div><div className="relation-grid"><Relation label="前置知识" count={node.incomingEdges.length} /><Relation label="支持后续" count={node.outgoingEdges.length} /></div><div className="detail-section"><span className="detail-label">关系预览</span><div className="relation-list">{node.incomingEdges.slice(0, 3).map((edge) => <div key={edge.sourceNode.id}><span className="relation-arrow">←</span>{edge.sourceNode.title}</div>)}{node.outgoingEdges.slice(0, 3).map((edge) => <div key={edge.targetNode.id}><span className="relation-arrow">→</span>{edge.targetNode.title}</div>)}</div></div></aside>;
+function RecordRow({ node, selected, onSelect }: { node: NodeItem; selected: boolean; onSelect: () => void }) {
+  const checks = [!node.description && '缺描述', node.memberships.length === 0 && '无主题', !node.metadata && '无来源数据'].filter(Boolean) as string[];
+  return <button className={`record-row ${selected ? 'record-row-selected' : ''}`} role="row" onClick={onSelect}>
+    <span className="record-node"><strong>{node.title}</strong><small className="record-id">{node.id}</small></span>
+    <span className="record-topic">{node.memberships.map(({ topic }) => topic.name).join('、') || <em>未归类</em>}</span>
+    <span className="record-kinds"><b className={`kind kind-${node.type.toLowerCase()}`}>{typeLabels[node.type]}</b><small>{grainLabels[node.granularity]}</small></span>
+    <span className="edge-count">{node._count?.incomingEdges ?? '—'}</span><span className="edge-count">{node._count?.outgoingEdges ?? '—'}</span>
+    <span className="check-flags">{checks.length ? checks.map((check) => <i key={check}>{check}</i>) : <b>字段齐全</b>}</span>
+  </button>;
 }
 
-function Relation({ label, count }: { label: string; count: number }) { return <div className="relation-count"><strong>{count}</strong><span>{label}</span></div>; }
-function LoadingRows() { return <>{[1, 2, 3, 4].map((key) => <div className="skeleton-row" key={key}><span /><span /><span /></div>)}</>; }
-function EmptyState() { return <div className="empty-state">没有找到匹配的节点。<br /><small>试试换个关键词，或者清空筛选条件。</small></div>; }
-function MapGlyph() { return <svg viewBox="0 0 24 24"><path d="M4 6.5 9 4l6 2.5L20 4v13.5L15 20l-6-2.5L4 20V6.5Z" /><path d="M9 4v13.5M15 6.5V20" /></svg>; }
-function GridGlyph() { return <svg viewBox="0 0 24 24"><rect x="4" y="4" width="6" height="6" /><rect x="14" y="4" width="6" height="6" /><rect x="4" y="14" width="6" height="6" /><rect x="14" y="14" width="6" height="6" /></svg>; }
-function SearchGlyph() { return <svg viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="6.3" /><path d="m16 16 4 4" /></svg>; }
-function ChevronGlyph() { return <svg className="chevron" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7" /></svg>; }
+function NodeInspector({ node, topics, onSelectNode }: { node: NodeDetails; topics: Topic[]; onSelectNode: (id: string) => void }) {
+  const metadata = node.metadata ?? {};
+  const ageRange = asRecord(metadata.ageRange);
+  const evidence = Array.isArray(metadata.evidence) ? metadata.evidence.filter((value): value is string => typeof value === 'string') : [];
+  const standards = Array.isArray(metadata.standards) ? metadata.standards.filter((value): value is string => typeof value === 'string') : [];
+  const topicMap = new Map(topics.map((topic) => [topic.id, topic]));
+  const memberships = node.memberships.map(({ topic }) => ({ ...topic, parent: topicMap.get(topic.parentId ?? '') ?? null }));
+
+  return <div className="inspector-content">
+    <div className="inspector-kicker"><span>NODE RECORD</span><button onClick={() => navigator.clipboard?.writeText(node.id)} title="复制节点 ID">复制 ID</button></div>
+    <h2>{node.title}</h2>
+    <code className="full-id">{node.id}</code>
+
+    <section className="inspect-section"><SectionTitle index="A" title="节点字段" /><div className="field-grid">
+      <Field label="类型" value={typeLabels[node.type]} raw={node.type} />
+      <Field label="粒度" value={grainLabels[node.granularity]} raw={node.granularity} />
+      <Field label="难度" value={node.difficulty == null ? '未设置' : `${node.difficulty} / 5`} raw={node.difficulty} />
+      <Field label="描述" value={node.description || '未填写'} wide />
+    </div></section>
+
+    <section className="inspect-section"><SectionTitle index="B" title="主题归属" /><div className="topic-audit">{memberships.length ? memberships.map((topic) => <div className="topic-audit-row" key={topic.id}><span>{topic.parent?.name ?? '根主题'}</span><b>›</b><strong>{topic.name}</strong><code>{topic.id}</code></div>) : <div className="missing-value">该节点没有 TopicMembership</div>}</div></section>
+
+    <section className="inspect-section"><SectionTitle index="C" title="学习关系" /><div className="relation-summary"><span><b>{node.incomingEdges.length}</b> 条指向本节点</span><span><b>{node.outgoingEdges.length}</b> 条从本节点指出</span></div>
+      <div className="edge-ledger">
+        {node.incomingEdges.map((edge) => <EdgeRow edge={edge} currentId={node.id} key={edge.id} onSelectNode={onSelectNode} />)}
+        {node.outgoingEdges.map((edge) => <EdgeRow edge={edge} currentId={node.id} key={edge.id} onSelectNode={onSelectNode} />)}
+        {node.incomingEdges.length + node.outgoingEdges.length === 0 && <div className="missing-value">该节点当前没有关联边</div>}
+      </div>
+      <p className="related-note">RELATED 表示知识相关；展示的 source / target 存储方向不代表学习顺序。</p>
+    </section>
+
+    <section className="inspect-section"><SectionTitle index="D" title="来源与学习证据" /><div className="source-fields">
+      <Field label="年龄段" value={ageRange ? `${String(ageRange.start ?? '—')}–${String(ageRange.end ?? '—')} 岁` : '未提供'} raw={metadata.ageRange} />
+      <Field label="中心度" value={typeof metadata.centrality === 'number' ? metadata.centrality.toFixed(4) : '未提供'} raw={metadata.centrality} />
+      <Field label="分类版本" value={typeof metadata.taxonomyVersion === 'string' ? metadata.taxonomyVersion : '未提供'} raw={metadata.taxonomyVersion} />
+      <Field label="来源类别" value={metadata.origin === 'cn_only' ? '中国特有' : metadata.origin === 'upstream' ? '上游译文' : '未标记'} raw={metadata.origin} />
+      <Field label="翻译状态" value={metadata.translationStatus === 'reviewed' ? '已校对' : metadata.translationStatus === 'machine' ? '机器翻译' : '未标记'} raw={metadata.translationStatus} />
+      <Field label="原始分类 / 学段" value={`${String(metadata.taxonomyType ?? '—')} / ${String(metadata.stage ?? '—')}`} raw={metadata.nodeKind} />
+      <Field label="评估提示" value={typeof metadata.assessmentPrompt === 'string' ? metadata.assessmentPrompt : '未提供'} raw={metadata.assessmentPrompt} wide />
+      <div className="source-list"><span>掌握证据 · {evidence.length}</span>{evidence.length ? <ul>{evidence.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul> : <div className="missing-value">未提供 evidence</div>}</div>
+      <div className="source-list"><span>课程标准 · {standards.length}</span>{standards.length ? <div className="standard-tags">{standards.map((standard) => <code key={standard}>{standard}</code>)}</div> : <div className="missing-value">未关联标准</div>}</div>
+      <details className="raw-metadata"><summary>查看完整 metadata JSON</summary><pre>{JSON.stringify(metadata, null, 2)}</pre></details>
+    </div></section>
+  </div>;
+}
+
+function EdgeRow({ edge, currentId, onSelectNode }: { edge: Edge; currentId: string; onSelectNode: (id: string) => void }) {
+  const source = edge.sourceNode ?? { id: edge.sourceNodeId, title: `未加载端点 · ${edge.sourceNodeId}` };
+  const target = edge.targetNode ?? { id: edge.targetNodeId, title: `未加载端点 · ${edge.targetNodeId}` };
+  const metadata = edge.metadata ?? {};
+  const reviewStatus = typeof metadata.reviewStatus === 'string' ? metadata.reviewStatus : null;
+  const reviewLabels: Record<string, string> = { SOURCE: '上游来源', REVIEWED: '已复核', NEEDS_REVIEW: '待复核' };
+  const reason = typeof metadata.reason === 'string' ? metadata.reason : null;
+  return <div className="edge-row">
+    <button onClick={() => onSelectNode(source.id)} className={source.id === currentId ? 'edge-node edge-node-current' : 'edge-node'}>{source.title}</button>
+    <span className="edge-arrow">→</span>
+    <button onClick={() => onSelectNode(target.id)} className={target.id === currentId ? 'edge-node edge-node-current' : 'edge-node'}>{target.title}</button>
+    <span className={`edge-kind edge-${edge.type.toLowerCase()}`}>{edgeLabels[edge.type]}</span>
+    <span className="edge-strength">{strengthLabels[edge.strength]}</span>
+    {(reviewStatus || reason) && <div className="edge-annotation">
+      {reviewStatus && <span className={`edge-review edge-review-${reviewStatus.toLowerCase()}`}>{reviewLabels[reviewStatus] ?? reviewStatus}</span>}
+      {reason && <p>{reason}</p>}
+      {typeof metadata.reviewProvenance === 'string' && <small>依据：{metadata.reviewProvenance}</small>}
+    </div>}
+  </div>;
+}
+
+function Field({ label, value, raw, wide = false }: { label: string; value: string; raw?: unknown; wide?: boolean }) {
+  return <div className={`field ${wide ? 'field-wide' : ''}`}><span>{label}</span><strong>{value}</strong>{raw !== undefined && raw !== null && <code>{typeof raw === 'string' ? raw : JSON.stringify(raw)}</code>}</div>;
+}
+
+function SectionTitle({ index, title }: { index: string; title: string }) { return <h3 className="section-title"><span>{index}</span>{title}</h3>; }
+function TableLoading() { return <div className="table-empty">正在读取节点记录…</div>; }
+function SearchGlyph() { return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.3" /><path d="m16 16 4 4" /></svg>; }
+function assertOk(response: Response) { if (!response.ok) throw new Error(`HTTP ${response.status}`); return response; }
+function asRecord(value: unknown): Record<string, unknown> | null { return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : null; }

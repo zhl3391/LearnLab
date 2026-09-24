@@ -112,29 +112,23 @@ Topic ≠ LearningNode
 
 ---
 
-# 3. Marble 的定位
+# 3. 初始数据来源的定位
 
-当前使用的 Marble 数据源为：
-
-<https://github.com/withmarbleapp/os-taxonomy/tree/main>
-
-Marble 只是 Learning Graph 的**初始数据来源**。
+当前初始化快照为 [Beijing Skill Taxonomy](https://github.com/luw2007/os-taxonomy-beijing)。该项目衍生自 Marble Skill Taxonomy，并包含中文译文、中国特有主题与中国课程标准映射。
 
 数据流：
 
 ```text
-Marble Taxonomy
-       ↓
-     Import
-       ↓
+Beijing Skill Taxonomy snapshot
+       ↓ one-time bootstrap
  Learning Graph
        ↓
  自己的数据
 ```
 
-导入完成后，系统使用自己的模型。
+初始化后，Learning Graph 使用自己的模型，不在运行时依赖上游数据结构，也不自动同步上游更新。上游 ID 只用于导入时关联和校验，不作为 LearningNode 的领域 ID。
 
-Learning Graph 不依赖 Marble 的数据结构，也不保存 Marble 的 `source`、`externalId` 等字段。
+Marble 是北京版的上游来源。导入时通过临时 ID 合并译文与上游结构；上游 ID 不作为 LearningNode 的领域 ID。
 
 未来可以：
 
@@ -146,7 +140,7 @@ Learning Graph 不依赖 Marble 的数据结构，也不保存 Marble 的 `sourc
 
 因此：
 
-> Marble 是初始化工具，而不是 Learning Graph 的领域模型。
+> Beijing Skill Taxonomy 是一次性初始化来源，不是 Learning Graph 的领域模型。
 
 ---
 
@@ -634,7 +628,8 @@ LearningEdge
 ├── sourceNodeId
 ├── targetNodeId
 ├── type
-└── strength
+├── strength
+└── metadata
 ```
 
 示例：
@@ -856,6 +851,7 @@ LearningGraph
     ├── targetNodeId
     ├── type
     └── strength
+    └── metadata
 ```
 
 ---
@@ -889,69 +885,7 @@ Mission
 
 # 23. 下一阶段
 
-Learning Graph 模型已经具备第一版基础。
-
-下一步不是继续增加字段，而是：
-
-```text
-Marble
-  ↓
-Import
-  ↓
-Learning Graph
-  ↓
-Graph Validation
-  ↓
-人工检查
-  ↓
-确定 Node / Edge 是否合理
-```
-
-重点验证两个问题：
-
-### 问题一：Node 拆分
-
-例如 Marble 中：
-
-```text
-加法
-```
-
-到底应该保持为：
-
-```text
-Node：加法
-```
-
-还是进一步拆成：
-
-```text
-加法概念
-加法计算
-加法应用
-```
-
-### 问题二：Edge 推断
-
-例如：
-
-```text
-加法
-10以内加法
-20以内加法
-```
-
-AI 是否能够可靠判断：
-
-```text
-加法
-  ↓ PREREQUISITE
-10以内加法
-  ↓ PREREQUISITE
-20以内加法
-```
-
-这将成为后续 AI 自动构建和维护 Learning Graph 的核心能力。
+Beijing Skill Taxonomy `1.2.0-zh.0` 已作为一次性快照初始化。当前下一步是人工核对标记为 `NEEDS_REVIEW` 的 machine 关系；后续快照不会自动同步。
 
 ---
 
@@ -973,4 +907,4 @@ PART_OF = 组成关系
 RELATED = 相关关系
 ```
 
-**Marble 负责提供初始数据；Learning Graph 从导入完成后就完全属于自己的模型。**
+**Beijing Skill Taxonomy 负责提供初始快照；Learning Graph 从导入完成后就属于自己的模型。**

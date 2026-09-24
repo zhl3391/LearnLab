@@ -37,6 +37,7 @@ export interface LearningGraphRepository {
     targetNodeId: string;
     type: EdgeType;
     strength: EdgeStrength;
+    metadata?: Record<string, unknown>;
   }): Promise<unknown>;
   importGraph(data: ImportGraphData): Promise<ImportGraphResult>;
   listTopics(): Promise<unknown>;

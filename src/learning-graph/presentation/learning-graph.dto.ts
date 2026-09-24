@@ -192,6 +192,10 @@ export class ImportEdgeDto implements ImportEdgeData {
 
   @IsEnum(EdgeStrength)
   strength!: EdgeStrength;
+
+  @IsOptional()
+  @IsObject()
+  metadata?: Record<string, unknown>;
 }
 
 export class ImportGraphDto {
