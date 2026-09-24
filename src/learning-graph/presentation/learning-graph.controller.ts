@@ -7,6 +7,8 @@ import {
   CreateNodeDto,
   CreateTopicDto,
   ListNodesQueryDto,
+  ListEdgesQueryDto,
+  ReviewEdgeDto,
 } from './learning-graph.dto';
 
 @Controller('learning-graph')
@@ -33,6 +35,11 @@ export class LearningGraphController {
     return this.service.getNodeDetails(id);
   }
 
+  @Get('edges')
+  listEdges(@Query() query: ListEdgesQueryDto) {
+    return this.service.listEdges(query);
+  }
+
   @Post('topics')
   createTopic(@Body() dto: CreateTopicDto) {
     return this.service.createTopic(dto);
@@ -51,6 +58,11 @@ export class LearningGraphController {
   @Post('edges')
   createEdge(@Body() dto: CreateEdgeDto) {
     return this.service.createEdge(dto);
+  }
+
+  @Post('edges/:id/reviews')
+  reviewEdge(@Param('id') id: string, @Body() dto: ReviewEdgeDto) {
+    return this.service.reviewEdge(id, dto);
   }
 
   @Post('import')

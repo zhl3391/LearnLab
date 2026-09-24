@@ -42,12 +42,16 @@ GET  /learning-graph
 GET  /learning-graph/topics
 GET  /learning-graph/nodes?page=1&pageSize=20&search=addition
 GET  /learning-graph/nodes/:id
+GET  /learning-graph/edges?page=1&pageSize=25&reviewStatus=NEEDS_REVIEW
 POST /learning-graph/topics
 POST /learning-graph/nodes
 POST /learning-graph/memberships
 POST /learning-graph/edges
+POST /learning-graph/edges/:id/reviews
 POST /learning-graph/import
 ```
+
+关系审核请求使用 `decision: APPROVE | REJECT` 并填写审核人；拒绝时必须填写理由。当前状态保存在边上，每次决定都会追加审核记录，已确认/已拒绝的决定可以再次改判并保留历史。北京导入的关系审核状态与强度分开保存。
 
 边创建时会校验：
 

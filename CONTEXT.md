@@ -21,12 +21,12 @@ A meaningful relationship between two LearningNodes. Its type expresses whether 
 _Avoid_: graph link, topic relation
 
 **Edge review status**:
-An annotation describing whether a relationship comes from the upstream source, has been reviewed, or still needs review. It is independent of the edge's learning strength.
+The current disposition of a LearningEdge: source-provided, awaiting review, accepted, or rejected. It is independent of the edge's learning strength.
 _Avoid_: edge strength, mastery status
 
-**Edge review status**:
-An annotation describing whether a relationship is only present in a source dataset, has been reviewed, or still needs review. It is independent of the edge's learning strength.
-_Avoid_: edge strength, mastery status
+**Edge review**:
+A recorded decision to accept or reject a LearningEdge candidate, attributed to a reviewer and time, with an optional note.
+_Avoid_: edge strength adjustment
 
 **Prerequisite**:
 A LearningNode that provides an important learning foundation for another LearningNode. It describes knowledge dependency, not a mandatory teaching sequence.

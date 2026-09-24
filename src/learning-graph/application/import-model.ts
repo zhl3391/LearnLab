@@ -1,4 +1,4 @@
-import { EdgeStrength, EdgeType, Granularity, NodeType } from '../domain/model';
+import { EdgeReviewStatus, EdgeStrength, EdgeType, Granularity, NodeType } from '../domain/model';
 
 export interface ImportTopicData {
   key: string;
@@ -27,6 +27,7 @@ export interface ImportEdgeData {
   targetNodeKey: string;
   type: EdgeType;
   strength: EdgeStrength;
+  reviewStatus?: EdgeReviewStatus;
   metadata?: Record<string, unknown>;
 }
 

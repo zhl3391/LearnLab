@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import {
   Prisma,
+  EdgeReviewDecision as PrismaEdgeReviewDecision,
+  EdgeReviewStatus as PrismaEdgeReviewStatus,
   EdgeStrength as PrismaEdgeStrength,
   EdgeType as PrismaEdgeType,
   Granularity as PrismaGranularity,
@@ -10,7 +12,10 @@ import { PrismaService } from '../../prisma/prisma.service';
 import {
   CreateNodeData,
   CreateTopicData,
+  ListEdgesQuery,
   LearningGraphRepository,
+  ReviewEdgeCommand,
+  ReviewEdgeResult,
 } from '../application/learning-graph.repository';
 import { ImportGraphData, ImportGraphResult } from '../application/import-model';
 import { GraphEdge, GraphNode } from '../domain/model';
@@ -180,6 +185,7 @@ export class PrismaLearningGraphRepository implements LearningGraphRepository {
             targetNodeId: nodeIds[edgeData.targetNodeKey],
             type: edgeData.type as PrismaEdgeType,
             strength: edgeData.strength as PrismaEdgeStrength,
+            reviewStatus: edgeData.reviewStatus as PrismaEdgeReviewStatus | undefined,
             ...(metadata === undefined
               ? {}
               : { metadata: metadata as Prisma.InputJsonValue }),
@@ -278,19 +284,94 @@ export class PrismaLearningGraphRepository implements LearningGraphRepository {
       where: { id },
       include: {
         memberships: { include: { topic: true } },
-        incomingEdges: {
-          include: {
-            sourceNode: { select: { id: true, title: true } },
-            targetNode: { select: { id: true, title: true } },
-          },
-        },
-        outgoingEdges: {
-          include: {
-            sourceNode: { select: { id: true, title: true } },
-            targetNode: { select: { id: true, title: true } },
-          },
-        },
+        incomingEdges: { include: { sourceNode: true, reviews: { orderBy: { createdAt: 'desc' }, take: 1 } } },
+        outgoingEdges: { include: { targetNode: true, reviews: { orderBy: { createdAt: 'desc' }, take: 1 } } },
       },
+    });
+  }
+
+  async listEdges(query: ListEdgesQuery) {
+    const where: Prisma.LearningEdgeWhereInput = {
+      ...(query.reviewStatus
+        ? { reviewStatus: query.reviewStatus as PrismaEdgeReviewStatus }
+        : {}),
+      ...(query.type ? { type: query.type as PrismaEdgeType } : {}),
+      ...(query.search
+        ? {
+            OR: [
+              { sourceNode: { is: { title: { contains: query.search, mode: 'insensitive' } } } },
+              { targetNode: { is: { title: { contains: query.search, mode: 'insensitive' } } } },
+            ],
+          }
+        : {}),
+    };
+    const [items, total, groupedStatuses] = await Promise.all([
+      this.prisma.learningEdge.findMany({
+        where,
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+        orderBy: [{ reviewStatus: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+        include: {
+          sourceNode: { select: { id: true, title: true } },
+          targetNode: { select: { id: true, title: true } },
+          reviews: { orderBy: { createdAt: 'desc' }, take: 1 },
+        },
+      }),
+      this.prisma.learningEdge.count({ where }),
+      this.prisma.learningEdge.groupBy({
+        by: ['reviewStatus'],
+        _count: { _all: true },
+      }),
+    ]);
+    const statusCounts = Object.fromEntries(
+      groupedStatuses.map((group) => [group.reviewStatus, group._count._all]),
+    );
+    return {
+      items,
+      page: query.page,
+      pageSize: query.pageSize,
+      total,
+      totalPages: Math.ceil(total / query.pageSize),
+      statusCounts,
+    };
+  }
+
+  async reviewEdge(id: string, command: ReviewEdgeCommand): Promise<ReviewEdgeResult> {
+    return this.prisma.$transaction(async (tx) => {
+      const current = await tx.learningEdge.findUnique({
+        where: { id },
+        select: { id: true, reviewStatus: true },
+      });
+      if (!current) return { outcome: 'NOT_FOUND' };
+
+      const nextStatus = command.decision === 'APPROVE'
+        ? PrismaEdgeReviewStatus.REVIEWED
+        : PrismaEdgeReviewStatus.REJECTED;
+      if (current.reviewStatus === nextStatus) return { outcome: 'UNCHANGED' };
+      const changed = await tx.learningEdge.updateMany({
+        where: { id, reviewStatus: current.reviewStatus },
+        data: { reviewStatus: nextStatus },
+      });
+      if (changed.count !== 1) return { outcome: 'CONFLICT' };
+
+      await tx.learningEdgeReview.create({
+        data: {
+          edgeId: id,
+          decision: command.decision as PrismaEdgeReviewDecision,
+          reviewer: command.reviewer,
+          note: command.note,
+        },
+      });
+
+      const edge = await tx.learningEdge.findUnique({
+        where: { id },
+        include: {
+          sourceNode: { select: { id: true, title: true } },
+          targetNode: { select: { id: true, title: true } },
+          reviews: { orderBy: { createdAt: 'desc' }, take: 1 },
+        },
+      });
+      return { outcome: 'UPDATED', edge };
     });
   }
 }

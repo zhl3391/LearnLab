@@ -1,4 +1,5 @@
 import {
+  EdgeReviewStatus,
   EdgeStrength,
   EdgeType,
   Granularity,
@@ -96,6 +97,7 @@ export function mapBeijingTaxonomy(input: BeijingTaxonomyInput): BeijingTaxonomy
       targetNodeId: edge.targetNodeKey,
       type: edge.type,
       strength: edge.strength,
+      reviewStatus: edge.reviewStatus,
       metadata: edge.metadata,
     })),
   });
@@ -112,6 +114,7 @@ export function mapBeijingTaxonomy(input: BeijingTaxonomyInput): BeijingTaxonomy
         targetNodeKey: edge.targetNodeId,
         type: edge.type,
         strength: edge.strength,
+        reviewStatus: edge.reviewStatus,
         metadata: edge.metadata,
       })),
     },
@@ -177,15 +180,16 @@ export function mapBeijingTaxonomy(input: BeijingTaxonomyInput): BeijingTaxonomy
         throw new Error(`Dependency endpoint was not mapped ${edge.prerequisiteId} -> ${edge.topicId}`);
       }
       const reviewStatus = source === 'UPSTREAM_SOURCE'
-        ? 'SOURCE'
-        : edge.reviewStatus === 'machine' ? 'NEEDS_REVIEW' : 'REVIEWED';
+        ? EdgeReviewStatus.SOURCE
+        : edge.reviewStatus === 'machine' ? EdgeReviewStatus.NEEDS_REVIEW : EdgeReviewStatus.REVIEWED;
       mappedEdges.push({
         sourceNodeKey: edge.prerequisiteId,
         targetNodeKey: edge.topicId,
         type: EdgeType.PREREQUISITE,
         strength: mapEdgeStrength(edge.strength),
+        reviewStatus,
         metadata: {
-          reviewStatus,
+          sourceReviewStatus: edge.reviewStatus ?? null,
           reviewProvenance: edge.reviewProvenance ?? (source === 'UPSTREAM_SOURCE' ? 'beijing-upstream' : null),
           reason: edge.reason ?? null,
           reviewedBy: edge.reviewedBy ?? null,

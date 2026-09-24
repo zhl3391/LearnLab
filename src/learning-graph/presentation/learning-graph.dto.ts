@@ -8,11 +8,14 @@ import {
   IsString,
   IsUUID,
   Max,
+  MaxLength,
   Min,
   MinLength,
   ValidateNested,
 } from 'class-validator';
 import {
+  EdgeReviewDecision,
+  EdgeReviewStatus,
   EdgeStrength,
   EdgeType,
   Granularity,
@@ -119,6 +122,48 @@ export class ListNodesQueryDto {
   topicId?: string;
 }
 
+export class ListEdgesQueryDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page = 1;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  pageSize = 25;
+
+  @IsOptional()
+  @IsString()
+  search?: string;
+
+  @IsOptional()
+  @IsEnum(EdgeReviewStatus)
+  reviewStatus?: EdgeReviewStatus;
+
+  @IsOptional()
+  @IsEnum(EdgeType)
+  type?: EdgeType;
+}
+
+export class ReviewEdgeDto {
+  @IsEnum(EdgeReviewDecision)
+  decision!: EdgeReviewDecision;
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(120)
+  reviewer!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  note?: string;
+}
+
 export class ImportTopicDto implements ImportTopicData {
   @IsString()
   @MinLength(1)
@@ -192,6 +237,10 @@ export class ImportEdgeDto implements ImportEdgeData {
 
   @IsEnum(EdgeStrength)
   strength!: EdgeStrength;
+
+  @IsOptional()
+  @IsEnum(EdgeReviewStatus)
+  reviewStatus?: EdgeReviewStatus;
 
   @IsOptional()
   @IsObject()

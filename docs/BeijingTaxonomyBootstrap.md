@@ -17,7 +17,9 @@ The manifest currently describes 1,590 translated topics, 2,008 China-specific t
 | `prerequisiteId → topicId` | `PREREQUISITE` edge from prerequisite to dependent node |
 | `hard` / `soft` | `REQUIRED` / `IMPORTANT` |
 | Topic translation, taxonomy type, evidence, standards, age, stage, and origin | LearningNode metadata |
-| Dependency reason and review provenance | LearningEdge metadata |
+| Dependency reason and source provenance | LearningEdge metadata |
+| Current edge review state | `LearningEdge.reviewStatus` |
+| Each human decision, reviewer, time, and note | LearningEdge review history |
 
 `reviewStatus: machine` is stored as `NEEDS_REVIEW`, `reviewStatus: reviewed` as `REVIEWED`, and source upstream edges are marked `SOURCE`. Edges marked `rejected` are excluded. Review status is independent of edge strength. Source IDs are temporary import keys and are not persisted as LearningNode IDs.
 

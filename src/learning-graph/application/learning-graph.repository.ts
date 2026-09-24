@@ -1,5 +1,7 @@
 import {
   EdgeStrength,
+  EdgeReviewDecision,
+  EdgeReviewStatus,
   EdgeType,
   Granularity,
   GraphEdge,
@@ -24,6 +26,26 @@ export interface CreateNodeData {
   difficulty?: number;
   metadata?: Record<string, unknown>;
 }
+
+export interface ListEdgesQuery {
+  page: number;
+  pageSize: number;
+  search?: string;
+  reviewStatus?: EdgeReviewStatus;
+  type?: EdgeType;
+}
+
+export interface ReviewEdgeCommand {
+  decision: EdgeReviewDecision;
+  reviewer: string;
+  note?: string;
+}
+
+export type ReviewEdgeResult =
+  | { outcome: 'NOT_FOUND' }
+  | { outcome: 'UNCHANGED' }
+  | { outcome: 'CONFLICT' }
+  | { outcome: 'UPDATED'; edge: unknown };
 
 export interface LearningGraphRepository {
   topicExists(id: string): Promise<boolean>;
@@ -50,5 +72,7 @@ export interface LearningGraphRepository {
     topicId?: string;
   }): Promise<unknown>;
   getNodeDetails(id: string): Promise<unknown>;
+  listEdges(query: ListEdgesQuery): Promise<unknown>;
+  reviewEdge(id: string, command: ReviewEdgeCommand): Promise<ReviewEdgeResult>;
   getGraph(): Promise<unknown>;
 }

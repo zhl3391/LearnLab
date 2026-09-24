@@ -33,6 +33,18 @@ enum EdgeStrength {
   HELPFUL
 }
 
+enum EdgeReviewStatus {
+  SOURCE
+  NEEDS_REVIEW
+  REVIEWED
+  REJECTED
+}
+
+enum EdgeReviewDecision {
+  APPROVE
+  REJECT
+}
+
 model Topic {
   id          String             @id @default(uuid())
   name        String
@@ -81,15 +93,30 @@ model LearningEdge {
   targetNodeId String
   type         EdgeType
   strength     EdgeStrength
+  reviewStatus EdgeReviewStatus @default(SOURCE)
   metadata     Json?
   sourceNode   LearningNode @relation("EdgeSource", fields: [sourceNodeId], references: [id], onDelete: Cascade)
   targetNode   LearningNode @relation("EdgeTarget", fields: [targetNodeId], references: [id], onDelete: Cascade)
+  reviews      LearningEdgeReview[]
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
 
   @@unique([sourceNodeId, targetNodeId, type])
   @@index([sourceNodeId, type])
   @@index([targetNodeId, type])
+  @@index([reviewStatus])
+}
+
+model LearningEdgeReview {
+  id        String             @id @default(uuid())
+  edgeId    String
+  decision  EdgeReviewDecision
+  reviewer  String
+  note      String?
+  createdAt DateTime           @default(now())
+  edge      LearningEdge       @relation(fields: [edgeId], references: [id], onDelete: Cascade)
+
+  @@index([edgeId, createdAt])
 }
 
 model ImportRun {

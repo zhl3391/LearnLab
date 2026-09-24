@@ -23,6 +23,18 @@ export enum EdgeStrength {
   HELPFUL = 'HELPFUL',
 }
 
+export enum EdgeReviewStatus {
+  SOURCE = 'SOURCE',
+  NEEDS_REVIEW = 'NEEDS_REVIEW',
+  REVIEWED = 'REVIEWED',
+  REJECTED = 'REJECTED',
+}
+
+export enum EdgeReviewDecision {
+  APPROVE = 'APPROVE',
+  REJECT = 'REJECT',
+}
+
 export interface GraphNode {
   id: string;
 }
@@ -33,6 +45,7 @@ export interface GraphEdge {
   targetNodeId: string;
   type: EdgeType;
   strength: EdgeStrength;
+  reviewStatus?: EdgeReviewStatus;
   metadata?: Record<string, unknown>;
 }
 

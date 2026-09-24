@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  BadRequestException,
   Inject,
   Injectable,
   NotFoundException,
@@ -16,7 +17,9 @@ import {
   CreateNodeData,
   CreateTopicData,
   LEARNING_GRAPH_REPOSITORY,
+  ListEdgesQuery,
   LearningGraphRepository,
+  ReviewEdgeCommand,
 } from './learning-graph.repository';
 import { ImportGraphData, ImportGraphResult } from './import-model';
 
@@ -91,6 +94,28 @@ export class LearningGraphService {
     return node;
   }
 
+  listEdges(query: ListEdgesQuery) {
+    return this.repository.listEdges(query);
+  }
+
+  async reviewEdge(id: string, command: ReviewEdgeCommand) {
+    if (!command.reviewer.trim()) {
+      throw new BadRequestException('请填写审核人');
+    }
+    if (command.decision === 'REJECT' && !command.note?.trim()) {
+      throw new BadRequestException('拒绝关系时请填写审核理由');
+    }
+    const result = await this.repository.reviewEdge(id, {
+      ...command,
+      reviewer: command.reviewer.trim(),
+      note: command.note?.trim() || undefined,
+    });
+    if (result.outcome === 'NOT_FOUND') throw new NotFoundException(`LearningEdge ${id} was not found`);
+    if (result.outcome === 'UNCHANGED') throw new ConflictException('该关系已处于此审核状态');
+    if (result.outcome === 'CONFLICT') throw new ConflictException('关系状态已被其他审核操作更新，请刷新后重试');
+    return result.edge;
+  }
+
   async importGraph(data: ImportGraphData): Promise<ImportGraphResult> {
     try {
       const normalizedData = this.validateImport(data);
@@ -149,6 +174,7 @@ export class LearningGraphService {
         targetNodeId: edge.targetNodeKey,
         type: edge.type,
         strength: edge.strength,
+        reviewStatus: edge.reviewStatus,
         metadata: edge.metadata,
       };
     });
@@ -164,6 +190,7 @@ export class LearningGraphService {
         targetNodeKey: edge.targetNodeId,
         type: edge.type,
         strength: edge.strength,
+        reviewStatus: edge.reviewStatus,
         metadata: edge.metadata,
       })),
     };
